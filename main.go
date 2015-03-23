@@ -13,22 +13,18 @@ import (
 var version = "1.0"
 
 func main() {
-	versionFlag := false
+	verbose := false
 
 	dnsSrv := flag.String("dns", "127.0.0.1:53", "dns to query")
 	index := flag.String("index", "", "Index name to add to primary name (hack)")
 	protocol := flag.String("protocol", "tcp", "Protocol tcp/udp and so on.")
 	framework := flag.String("framework", "marathon", "Framework")
 	domain := flag.String("domain", "mesos", "Domain")
-	flag.BoolVar(&versionFlag, "version", false, "output the version")
+	flag.BoolVar(&verbose, "verbose", false, "verbose")
 	hname := flag.String("hname", "", "hostname prefix if needed")
 	pname := flag.String("pname", ".", "port prefix if needed")
 	flag.Parse()
 
-	if versionFlag {
-		fmt.Println(version)
-		os.Exit(0)
-	}
 	if flag.NArg() != 1 {
 		os.Exit(1)
 	}
@@ -37,11 +33,17 @@ func main() {
 	firstChar := string(srvName[0])
 	realQuery := srvName
 	if firstChar == "." || firstChar == "/" {
+		if verbose {
+			fmt.Printf("Using relative path from %s\n", os.Getenv("MARATHON_APP_ID"))
+		}
 		pathInfo := ""
 		if firstChar == "." {
-			pathInfo = filepath.Clean(filepath.Join(os.Getenv("MARATHON_APP_ID"), srvName))
+			pathInfo = filepath.Clean(filepath.Join(os.Getenv("MARATHON_APP_ID")+"/", srvName))
 		} else {
 			pathInfo = realQuery
+		}
+		if verbose {
+			fmt.Printf("Calculated path to be %s\n", pathInfo)
 		}
 		source := strings.Split(pathInfo, "/")
 		query := ""
@@ -58,13 +60,16 @@ func main() {
 				}
 			}
 		}
-		realQuery = query + "._" + *protocol + "." + *framework + "." + *domain + "."
+		realQuery = query + "._" + *protocol + "." + *framework + "." + *domain
+	}
+	if verbose {
+		fmt.Printf("Query SRV %s\n", realQuery)
 	}
 	lib := dns.NewLookupLib(*dnsSrv)
-	c := clb.NewRandomClb(lib)
+	c := clb.NewRoundRobinClb(lib)
 	address, err := c.GetAddress(realQuery)
 	if err != nil {
-		fmt.Fprint(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, err)
 	}
 	if *hname != "" {
 		fmt.Printf("%s%s%s%d", *hname, address.Address, *pname, address.Port)
